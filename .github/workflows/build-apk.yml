@@ -48,13 +48,46 @@ jobs:
 
       - name: Extract CipherCalc project
         run: |
-          unzip -q CipherCalc-Android-Project.zip -d extracted
+          unzip -q CipherCalc-Android-Project-v2.zip -d extracted
           test -f extracted/CipherCalc/settings.gradle.kts
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
+      - name: Fix Java and Kotlin JVM targets
+        working-directory: extracted/CipherCalc
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle.kts")
+          s = p.read_text()
+
+          if "sourceCompatibility = JavaVersion.VERSION_17" not in s:
+              s = s.replace(
+                  "    defaultConfig {",
+                  """    compileOptions {
+                      sourceCompatibility = JavaVersion.VERSION_17
+                      targetCompatibility = JavaVersion.VERSION_17
+                  }
+
+                  defaultConfig {"""
+              )
+
+          if 'jvmTarget = "17"' not in s:
+              s = s.replace(
+                  "    defaultConfig {",
+                  """    kotlinOptions {
+                      jvmTarget = "17"
+                  }
+
+                  defaultConfig {"""
+              )
+
+          p.write_text(s)
+          PY
 
       - name: Build debug APK
         working-directory: extracted/CipherCalc
