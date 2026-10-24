@@ -1,3 +1,4 @@
+
 name: Build CipherCalc APK
 
 on:
@@ -22,20 +23,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Locate Android SDK tools
+        id: sdk
+        run: |
+          echo "sdk_root=${ANDROID_HOME}" >> "$GITHUB_OUTPUT"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          echo "sdkmanager=$SDKMANAGER" >> "$GITHUB_OUTPUT"
+
+      - name: Accept Android SDK licenses
+        env:
+          SDKMANAGER: ${{ steps.sdk.outputs.sdkmanager }}
+        shell: bash
+        run: |
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses
+          set -o pipefail
+
+      - name: Install Android SDK packages
+        env:
+          SDKMANAGER: ${{ steps.sdk.outputs.sdkmanager }}
+        run: |
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
       - name: Extract CipherCalc project
         run: |
           unzip -q CipherCalc-Android-Project.zip -d extracted
           test -f extracted/CipherCalc/settings.gradle.kts
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
