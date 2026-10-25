@@ -1,10 +1,9 @@
-
 name: Build CipherCalc APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
 
 permissions:
   contents: read
@@ -12,9 +11,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
     steps:
-      - name: Check out repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -23,80 +22,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Locate Android SDK tools
-        id: sdk
-        run: |
-          echo "sdk_root=${ANDROID_HOME}" >> "$GITHUB_OUTPUT"
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
-          test -n "$SDKMANAGER"
-          echo "sdkmanager=$SDKMANAGER" >> "$GITHUB_OUTPUT"
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Accept Android SDK licenses
-        env:
-          SDKMANAGER: ${{ steps.sdk.outputs.sdkmanager }}
-        shell: bash
-        run: |
-          set +o pipefail
-          yes | "$SDKMANAGER" --licenses
-          set -o pipefail
+        run: yes | sdkmanager --licenses || true
 
       - name: Install Android SDK packages
-        env:
-          SDKMANAGER: ${{ steps.sdk.outputs.sdkmanager }}
-        run: |
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Extract CipherCalc project
-        run: |
-          unzip -q CipherCalc-Android-Project-v2.zip -d extracted
-          test -f extracted/CipherCalc/settings.gradle.kts
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Fix Java and Kotlin JVM targets
-        working-directory: extracted/CipherCalc
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("app/build.gradle.kts")
-          s = p.read_text()
-
-          if "sourceCompatibility = JavaVersion.VERSION_17" not in s:
-              s = s.replace(
-                  "    defaultConfig {",
-                  """    compileOptions {
-                      sourceCompatibility = JavaVersion.VERSION_17
-                      targetCompatibility = JavaVersion.VERSION_17
-                  }
-
-                  defaultConfig {"""
-              )
-
-          if 'jvmTarget = "17"' not in s:
-              s = s.replace(
-                  "    defaultConfig {",
-                  """    kotlinOptions {
-                      jvmTarget = "17"
-                  }
-
-                  defaultConfig {"""
-              )
-
-          p.write_text(s)
-          PY
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
-        working-directory: extracted/CipherCalc
-        run: gradle --no-daemon assembleDebug
+        uses: gradle/gradle-build-action@v3
+        with:
+          gradle-version: '8.9'
+          arguments: assembleDebug --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CipherCalc-debug-apk
-          path: extracted/CipherCalc/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
           
