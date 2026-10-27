@@ -1,3 +1,4 @@
+
 name: Build CipherCalc APK
 
 on:
@@ -31,50 +32,50 @@ jobs:
         with:
           packages: ''
 
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Extract CipherCalc source ZIP
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
+          ZIP_FILE="CipherCalc-Full-Source-DOCUMENTS-PRIVACY-ICON.zip"
 
-          ZIP_FILE="CipherCalc-Full-Source-THEME-FIX.zip"
-
-          if [ ! -f "$ZIP_FILE" ]; then
+          if [[ ! -f "$ZIP_FILE" ]]; then
             echo "ERROR: Required ZIP not found: $ZIP_FILE"
-            echo "ZIP files in the repository:"
-            find . -maxdepth 2 -type f -name "*.zip"
+            find . -maxdepth 2 -type f -name '*.zip' -print
             exit 1
           fi
 
           mkdir -p extracted_source
           unzip -q "$ZIP_FILE" -d extracted_source
 
-          echo "ZIP extracted successfully."
-
-      - name: Find Android project
+      - name: Find Android Gradle project
         id: project
+        shell: bash
         run: |
-          set -eu
+          set -euo pipefail
 
-          SETTINGS_FILE="$(find extracted_source \
-            -type f \
+          SETTINGS_FILE="$(find extracted_source -type f \
             \( -name settings.gradle -o -name settings.gradle.kts \) \
             -print -quit)"
 
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERROR: No Gradle settings file was found in the ZIP."
-            find extracted_source -maxdepth 4 -type f
+          if [[ -z "$SETTINGS_FILE" ]]; then
+            echo "ERROR: Gradle settings file not found in ZIP."
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
-          echo "Project directory: $PROJECT_DIR"
+          if [[ ! -f "$PROJECT_DIR/app/build.gradle" && \
+                ! -f "$PROJECT_DIR/app/build.gradle.kts" ]]; then
+            echo "ERROR: Android app module build file not found."
+            exit 1
+          fi
+
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set up Gradle
@@ -84,22 +85,21 @@ jobs:
 
       - name: Build debug APK
         id: build
+        shell: bash
         run: |
-          set -eu
-
+          set -euo pipefail
           cd "${{ steps.project.outputs.project_dir }}"
 
           gradle assembleDebug --stacktrace
 
           APK_FILE="$(find app/build/outputs/apk/debug \
-            -type f -name "*.apk" -print -quit)"
+            -type f -name '*.apk' -print -quit)"
 
-          if [ -z "$APK_FILE" ]; then
+          if [[ -z "$APK_FILE" ]]; then
             echo "ERROR: APK was not generated."
             exit 1
           fi
 
-          echo "APK generated: $APK_FILE"
           echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK_FILE" \
             >> "$GITHUB_OUTPUT"
 
@@ -110,3 +110,4 @@ jobs:
           path: ${{ steps.build.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
+          
