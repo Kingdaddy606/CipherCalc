@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Download repository files
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -35,15 +35,18 @@ jobs:
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
+
       - name: Extract CipherCalc source ZIP
         run: |
           set -eu
 
-          ZIP_FILE="CipherCalc-Full-Source.zip"
+          ZIP_FILE="CipherCalc-Full-Source-THEME-FIX.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: $ZIP_FILE was not found in the repository."
-            echo "ZIP files available in the repository:"
+            echo "ERROR: Required ZIP not found: $ZIP_FILE"
+            echo "ZIP files in the repository:"
             find . -maxdepth 2 -type f -name "*.zip"
             exit 1
           fi
@@ -51,8 +54,7 @@ jobs:
           mkdir -p extracted_source
           unzip -q "$ZIP_FILE" -d extracted_source
 
-          echo "Extracted ZIP contents:"
-          find extracted_source -maxdepth 3 -type f | head -80
+          echo "ZIP extracted successfully."
 
       - name: Find Android project
         id: project
@@ -65,14 +67,14 @@ jobs:
             -print -quit)"
 
           if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERROR: No settings.gradle or settings.gradle.kts found."
-            echo "The uploaded ZIP may not contain the Android project."
+            echo "ERROR: No Gradle settings file was found in the ZIP."
+            find extracted_source -maxdepth 4 -type f
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
-          echo "Android project found at: $PROJECT_DIR"
+          echo "Project directory: $PROJECT_DIR"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set up Gradle
@@ -98,9 +100,10 @@ jobs:
           fi
 
           echo "APK generated: $APK_FILE"
-          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK_FILE" >> "$GITHUB_OUTPUT"
+          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK_FILE" \
+            >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: CipherCalc-debug-apk
