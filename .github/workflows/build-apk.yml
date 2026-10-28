@@ -16,6 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,15 +30,43 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+              -type f -name sdkmanager -print -quit)"
+          fi
+
+          if [[ -z "$SDKMANAGER" || ! -x "$SDKMANAGER" ]]; then
+            echo "ERROR: Android SDK manager was not found."
+            exit 1
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          "$SDKMANAGER" --version
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$SDKMANAGER" --licenses || true
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          set -euo pipefail
+
+          "$SDKMANAGER" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Extract CipherCalc source ZIP
         shell: bash
@@ -44,9 +76,9 @@ jobs:
           ZIP_FILE="CipherCalc-Full-Source-CALCULATOR-REDESIGN.zip"
 
           if [[ ! -f "$ZIP_FILE" ]]; then
-            echo "ERROR: Required source ZIP not found: $ZIP_FILE"
-            echo "ZIP files in repository:"
-            find . -maxdepth 2 -type f -name '*.zip' -print
+            echo "ERROR: Source ZIP not found: $ZIP_FILE"
+            echo "ZIP files found in repository:"
+            find . -maxdepth 3 -type f -name '*.zip' -print
             exit 1
           fi
 
@@ -55,7 +87,7 @@ jobs:
 
           echo "Source ZIP extracted successfully."
 
-      - name: Find Android project
+      - name: Find Android Gradle project
         id: project
         shell: bash
         run: |
@@ -66,7 +98,8 @@ jobs:
             -print -quit)"
 
           if [[ -z "$SETTINGS_FILE" ]]; then
-            echo "ERROR: Gradle settings file not found."
+            echo "ERROR: No Gradle settings file was found in the ZIP."
+            find extracted_source -maxdepth 4 -type f -print
             exit 1
           fi
 
@@ -74,11 +107,13 @@ jobs:
 
           if [[ ! -f "$PROJECT_DIR/app/build.gradle" && \
                 ! -f "$PROJECT_DIR/app/build.gradle.kts" ]]; then
-            echo "ERROR: Android app module build file not found."
+            echo "ERROR: The Android app module build file was not found."
+            echo "Expected app/build.gradle or app/build.gradle.kts."
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found at: $PROJECT_DIR"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -91,7 +126,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          cd "${{ steps.project.outputs.project_dir }}"
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+
+          cd "$PROJECT_DIR"
 
           gradle assembleDebug --stacktrace
 
@@ -99,14 +136,14 @@ jobs:
             -type f -name '*.apk' -print -quit)"
 
           if [[ -z "$APK_FILE" ]]; then
-            echo "ERROR: APK was not generated."
+            echo "ERROR: Build completed without producing an APK."
             exit 1
           fi
 
-          echo "apk_path=${{ steps.project.outputs.project_dir }}/$APK_FILE" \
-            >> "$GITHUB_OUTPUT"
+          echo "apk_path=$PROJECT_DIR/$APK_FILE" >> "$GITHUB_OUTPUT"
+          echo "APK created successfully."
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CipherCalc-debug-apk
